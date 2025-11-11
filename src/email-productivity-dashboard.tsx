@@ -96,7 +96,7 @@ const EmailProductivityDashboard: React.FC = () => {
         connected: true,
         error: '',
         profile: savedProfile || 'Connected',
-        lastSync: 'Loading...',
+        // Don't set lastSync during loading to avoid "Invalid Date" display
       });
       // Auto-fetch emails on startup
       fetchEmails(savedToken).catch(async (error) => {
@@ -159,13 +159,25 @@ const EmailProductivityDashboard: React.FC = () => {
         const newToken = data.access_token;
         setGoogleToken(newToken);
         localStorage.setItem('gmail_access_token', newToken);
+        // Clear previous error
+        setGmailStatus((prev) => ({ ...prev, error: '', connected: true }));
         await fetchEmails(newToken);
       } else {
-        throw new Error('Failed to refresh token');
+        throw new Error(data.error_description || 'Failed to refresh token');
       }
     } catch (error) {
       console.error('Token refresh failed:', error);
-      setGmailStatus((prev) => ({ ...prev, connected: false, error: 'Session expired. Please reconnect.' }));
+      // Clear invalid tokens
+      setGoogleToken('');
+      localStorage.removeItem('gmail_access_token');
+      localStorage.removeItem('gmail_refresh_token');
+      setGmailStatus((prev) => ({
+        ...prev,
+        connected: false,
+        loading: false,
+        error: 'Session expired. Please reconnect to Gmail.',
+        lastSync: undefined,
+      }));
     }
   };
 
@@ -362,7 +374,8 @@ const EmailProductivityDashboard: React.FC = () => {
       });
       if (!listRes.ok) {
         if (listRes.status === 401) {
-          setGoogleToken('');
+          await handle401Error();
+          return;
         }
         const errBody = await listRes.json().catch(() => ({}));
         throw new Error(errBody?.error?.message || 'Unable to load inbox.');
@@ -421,6 +434,28 @@ const EmailProductivityDashboard: React.FC = () => {
     return googleToken;
   };
 
+  const handle401Error = async () => {
+    // Clear invalid token
+    setGoogleToken('');
+    localStorage.removeItem('gmail_access_token');
+
+    // Try to refresh if we have a refresh token
+    const refreshToken = localStorage.getItem('gmail_refresh_token');
+    if (refreshToken) {
+      console.log('Attempting to refresh expired token...');
+      await refreshAccessToken(refreshToken);
+    } else {
+      // No refresh token, user must reconnect
+      setGmailStatus((prev) => ({
+        ...prev,
+        connected: false,
+        loading: false,
+        error: 'Authentication expired. Please reconnect to Gmail.',
+        lastSync: undefined,
+      }));
+    }
+  };
+
   const patchReplyDraft = useCallback((emailId: string, patch: Partial<ReplyDraftState>) => {
     setReplyDrafts((prev) => {
       const existing = prev[emailId] ?? { loading: false, content: '' };
@@ -435,10 +470,16 @@ const EmailProductivityDashboard: React.FC = () => {
     (error: unknown, fallback: string) => {
       const message = error instanceof Error ? error.message : fallback;
       if (/insufficient authentication scopes/i.test(message)) {
+        const enhancedMessage = 'Missing permissions: Please reconnect Gmail and accept all requested permissions (compose, modify, and send).';
         setGmailStatus((prev) => ({
           ...prev,
-          error: 'Reconnect Gmail and accept the compose/modify permissions to run this action.',
+          error: enhancedMessage,
+          connected: false,
         }));
+        return enhancedMessage;
+      }
+      if (/invalid.*(credential|token|authentication)/i.test(message)) {
+        return 'Authentication expired. Please reconnect to Gmail.';
       }
       return message;
     },
@@ -466,7 +507,9 @@ const EmailProductivityDashboard: React.FC = () => {
       });
       if (!res.ok) {
         if (res.status === 401) {
-          setGoogleToken('');
+          await handle401Error();
+          updateMessageAction(email.id, { archiving: false });
+          return;
         }
         const errBody = await res.json().catch(() => ({}));
         throw new Error(errBody?.error?.message || 'Unable to archive email.');
@@ -494,7 +537,9 @@ const EmailProductivityDashboard: React.FC = () => {
       });
       if (!res.ok) {
         if (res.status === 401) {
-          setGoogleToken('');
+          await handle401Error();
+          updateMessageAction(email.id, { trashing: false });
+          return;
         }
         const errBody = await res.json().catch(() => ({}));
         throw new Error(errBody?.error?.message || 'Unable to delete email.');
@@ -583,7 +628,9 @@ const EmailProductivityDashboard: React.FC = () => {
       });
       if (!res.ok) {
         if (res.status === 401) {
-          setGoogleToken('');
+          await handle401Error();
+          patchReplyDraft(email.id, { loading: false, error: 'Authentication expired' });
+          return;
         }
         const errBody = await res.json().catch(() => ({}));
         throw new Error(errBody?.error?.message || 'Unable to save draft in Gmail.');
@@ -660,7 +707,9 @@ const EmailProductivityDashboard: React.FC = () => {
       }
       if (!res.ok) {
         if (res.status === 401) {
-          setGoogleToken('');
+          await handle401Error();
+          patchReplyDraft(email.id, { saving: false, error: 'Authentication expired' });
+          return;
         }
         const errBody = await res.json().catch(() => ({}));
         throw new Error(errBody?.error?.message || 'Unable to save draft.');
@@ -710,7 +759,9 @@ const EmailProductivityDashboard: React.FC = () => {
       });
       if (!res.ok) {
         if (res.status === 401) {
-          setGoogleToken('');
+          await handle401Error();
+          patchReplyDraft(email.id, { sending: false, error: 'Authentication expired' });
+          return;
         }
         const errBody = await res.json().catch(() => ({}));
         throw new Error(errBody?.error?.message || 'Unable to send reply.');
@@ -1136,18 +1187,14 @@ const EmailProductivityDashboard: React.FC = () => {
           <StatCard title="Action Items" value={actionBacklog.length} hint="Across all emails" />
         </section>
 
-        <section className="grid gap-4 lg:grid-cols-2">
-          <div className="rounded-3xl bg-slate-900/50 p-5 shadow-inner">
-            <h2 className="text-sm font-semibold text-white">Gmail Connection</h2>
-            <p className="text-xs text-white/60">
-              {typeof window.__TAURI__ !== 'undefined' ? 'Auto-syncing every 5 minutes' : 'Using client ID from config.ts'}
-            </p>
-            {gmailStatus.connected ? (
-              <div className="mt-3">
-                {gmailStatus.profile && <p className="text-sm text-white">Signed in as {gmailStatus.profile}</p>}
-                {gmailStatus.lastSync && <p className="text-xs text-white/60">Last sync: {new Date(gmailStatus.lastSync).toLocaleString()}</p>}
-              </div>
-            ) : (
+        {/* Only show Gmail Connection section when not connected or there's an error */}
+        {(!gmailStatus.connected || gmailStatus.error) && (
+          <section className="grid gap-4 lg:grid-cols-2">
+            <div className={`rounded-3xl p-5 shadow-inner ${gmailStatus.error ? 'bg-red-900/30 border-2 border-red-500/50' : 'bg-slate-900/50'}`}>
+              <h2 className="text-sm font-semibold text-white">Gmail Connection</h2>
+              <p className="text-xs text-white/60">
+                {typeof window.__TAURI__ !== 'undefined' ? 'Auto-syncing every 5 minutes' : 'Using client ID from config.ts'}
+              </p>
               <div className="mt-3">
                 <button
                   type="button"
@@ -1158,10 +1205,21 @@ const EmailProductivityDashboard: React.FC = () => {
                   {gmailStatus.loading ? 'Connecting…' : 'Connect Gmail'}
                 </button>
               </div>
-            )}
-            {gmailStatus.error && <p className="mt-2 text-xs text-red-300">{gmailStatus.error}</p>}
-          </div>
-        </section>
+              {gmailStatus.error && (
+                <div className="mt-3 rounded-xl bg-red-500/20 border border-red-400/50 p-3">
+                  <p className="text-xs font-semibold text-red-200">{gmailStatus.error}</p>
+                  <button
+                    type="button"
+                    onClick={connectGmail}
+                    className="mt-2 rounded-lg bg-red-100 px-3 py-1.5 text-xs font-semibold text-red-900 transition hover:bg-red-200"
+                  >
+                    Reconnect Gmail
+                  </button>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
 
         <section className="grid gap-4 lg:grid-cols-3">
           <div className="rounded-3xl bg-white/5 p-5 text-slate-900 shadow-lg lg:col-span-2">
