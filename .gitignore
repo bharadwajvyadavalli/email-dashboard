@@ -26,3 +26,24 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+src-tauri/target/
+*.dmg
+*.app
+
+# Secrets (IMPORTANT!)
+src/config.ts
+.env
+.env.local
+
+# OS files
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
