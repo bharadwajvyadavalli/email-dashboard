@@ -132,97 +132,25 @@ This will:
 - Launch Tauri desktop window
 - Enable hot-reload for frontend changes
 
-### Build Production DMG
-
-To create a macOS native app installer:
+### Build the macOS App
 
 ```bash
-# Ensure Rust environment is loaded
 source "$HOME/.cargo/env"
-
-# Build the production DMG
 npm run tauri:build
 ```
 
-This will:
-1. Build the React frontend with Vite (optimized production build)
-2. Compile the Rust backend
-3. Create a native macOS `.app` bundle
-4. Package it into a distributable `.dmg` file
-
-**Build output locations:**
+**Where the DMG is created:**
 ```
-src-tauri/target/release/bundle/macos/Email Dashboard.app
 src-tauri/target/release/bundle/dmg/Email Dashboard_0.1.0_aarch64.dmg
 ```
 
-**Build time:** First build takes 2-3 minutes. Subsequent builds are faster (~30-60 seconds).
+### Install the App
 
-## Installing the macOS App
+1. Open the DMG file (double-click it)
+2. Drag "Email Dashboard" to your Applications folder
+3. Launch from Applications folder
 
-### Option 1: Install from DMG (Recommended)
-
-1. **Locate the DMG file:**
-   ```bash
-   open src-tauri/target/release/bundle/dmg/
-   ```
-
-2. **Double-click** `Email Dashboard_0.1.0_aarch64.dmg` to mount it
-
-3. **Drag** the "Email Dashboard" icon to the Applications folder
-
-4. **Eject** the DMG from Finder
-
-5. **Launch** the app:
-   - Open Finder → Applications
-   - Find "Email Dashboard"
-   - Double-click to launch
-
-### Option 2: Quick Test (Development)
-
-To test without installing:
-
-```bash
-# Run directly from the .app bundle
-open "src-tauri/target/release/bundle/macos/Email Dashboard.app"
-```
-
-### macOS Security & Permissions
-
-**First launch will require security approval:**
-
-1. When you first open the app, macOS may show:
-   ```
-   "Email Dashboard" cannot be opened because it is from an unidentified developer.
-   ```
-
-2. **To allow the app:**
-   - Go to **System Settings** → **Privacy & Security**
-   - Scroll down to see `"Email Dashboard" was blocked`
-   - Click **Open Anyway**
-   - Click **Open** in the confirmation dialog
-
-3. **Alternative method:**
-   ```bash
-   # Remove quarantine attribute from the app
-   xattr -dr com.apple.quarantine "/Applications/Email Dashboard.app"
-   ```
-
-### Distribution
-
-To share the app with others:
-
-1. **Share the DMG file:**
-   ```
-   Email Dashboard_0.1.0_aarch64.dmg
-   ```
-
-2. **Recipients will need:**
-   - macOS (Apple Silicon)
-   - To follow the security steps above
-   - Their own OpenAI API key and Google OAuth credentials in `config.ts`
-
-**Note:** For wider distribution, consider code signing with an Apple Developer certificate to avoid security warnings.
+**Note:** macOS may show a security warning on first launch. Go to System Settings → Privacy & Security → Click "Open Anyway"
 
 ## Usage
 
